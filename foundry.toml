@@ -6,6 +6,8 @@ fs_permissions = [
     { access = "read", path = "./builds/uniswap/"},
     { access = "read", path = "./test/the-rewarder/dvt-distribution.json"},
     { access = "read", path = "./test/the-rewarder/weth-distribution.json"},
+        { access = "read", path = "./test/the-rewarder/dvt-distribution-attacker.json"},
+    { access = "read", path = "./test/the-rewarder/weth-distribution-attacker.json"},
     { access = "read", path = "./test/withdrawal/withdrawals.json"}
 ]
 ignored_warnings_from = [

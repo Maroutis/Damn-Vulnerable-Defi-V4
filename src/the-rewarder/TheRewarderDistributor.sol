@@ -8,6 +8,8 @@ import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {BitMaps} from "@openzeppelin/contracts/utils/structs/BitMaps.sol";
 
+import {console} from "forge-std/Test.sol";
+
 struct Distribution {
     uint256 remaining;
     uint256 nextBatchNumber;
