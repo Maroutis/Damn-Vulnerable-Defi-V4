@@ -5,6 +5,7 @@ pragma solidity =0.8.25;
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 
+
 abstract contract Multicall is Context {
     function multicall(bytes[] calldata data) external virtual returns (bytes[] memory results) {
         results = new bytes[](data.length);
