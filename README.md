@@ -1,3 +1,5 @@
+**FYI, this repo contains the solutions to the 4 new/changed levels of DVD.** For the write-up of the olds levels, check the [DVD-v3 repo](https://github.com/Maroutis/Damn-vulnerable-defi-foundry-v3)
+
 # Damn Vulnerable DeFi
 
 Damn Vulnerable DeFi is _the_ smart contract security playground for developers, security researchers and educators.
